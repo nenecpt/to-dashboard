@@ -12,6 +12,27 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- ===== LINE 瀏覽器偵測提醒 ===== -->
+    <div class="line-browser-banner" id="line-browser-banner" style="display:none">
+        <div class="line-banner-content">
+            <span class="line-banner-icon">⚠️</span>
+            <div class="line-banner-text">
+                <strong>建議使用外部瀏覽器開啟</strong>
+                <p>LINE 內建瀏覽器可能無法正常使用部分功能（如資料儲存）。請點右上角「⋯」選擇「以預設瀏覽器開啟」。</p>
+            </div>
+            <button class="line-banner-close" onclick="document.getElementById('line-browser-banner').style.display='none'">✕</button>
+        </div>
+    </div>
+    <script>
+    // 偵測 LINE 內建瀏覽器
+    (function() {
+        var ua = navigator.userAgent || '';
+        if (/Line\//i.test(ua)) {
+            document.getElementById('line-browser-banner').style.display = 'block';
+        }
+    })();
+    </script>
+
     <!-- ===== 側邊導航（桌面版） ===== -->
     <nav class="sidebar" id="sidebar">
         <div class="sidebar-brand">

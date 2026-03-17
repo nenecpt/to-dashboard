@@ -117,6 +117,66 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
+/* === LINE Browser Warning Banner === */
+.line-browser-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: #1a1a1a;
+    padding: var(--space-3) var(--space-4);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.line-banner-content {
+    max-width: 640px;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+.line-banner-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.line-banner-text {
+    flex: 1;
+}
+
+.line-banner-text strong {
+    display: block;
+    font-size: var(--font-size-base);
+    margin-bottom: 2px;
+}
+
+.line-banner-text p {
+    font-size: var(--font-size-sm);
+    margin: 0;
+    line-height: 1.4;
+    opacity: 0.85;
+}
+
+.line-banner-close {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: #1a1a1a;
+    opacity: 0.6;
+    padding: 4px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.line-banner-close:hover {
+    opacity: 1;
+}
+
 /* === Sidebar (Desktop) === */
 .sidebar {
     width: var(--sidebar-width);
