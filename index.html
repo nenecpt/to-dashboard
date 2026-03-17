@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TO 線控管理中心 | 行健旅遊 UNOTOUR</title>
+    <meta name="description" content="旅行社 Tour Operator 個人線控管理儀表板，追蹤出團狀態、待辦事項、截止日期與團費收支。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- ===== 側邊導航（桌面版） ===== -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <span class="brand-icon">✈️</span>
+            <span class="brand-text">TO 線控中心</span>
+        </div>
+        <ul class="sidebar-nav">
+            <li><a href="#dashboard" class="nav-link active" data-view="dashboard"><i data-lucide="layout-dashboard"></i><span>總覽</span></a></li>
+            <li><a href="#lines" class="nav-link" data-view="lines"><i data-lucide="map"></i><span>線路</span></a></li>
+            <li><a href="#todos" class="nav-link" data-view="todos"><i data-lucide="check-square"></i><span>待辦</span></a></li>
+            <li><a href="#finance" class="nav-link" data-view="finance"><i data-lucide="wallet"></i><span>收支</span></a></li>
+        </ul>
+        <div class="sidebar-footer">
+            <button class="btn-icon" id="btn-export" title="匯出資料"><i data-lucide="download"></i><span>匯出</span></button>
+            <button class="btn-icon" id="btn-import" title="匯入資料"><i data-lucide="upload"></i><span>匯入</span></button>
+            <input type="file" id="import-file-input" accept=".json" style="display:none">
+        </div>
+    </nav>
+
+    <!-- ===== 主內容區 ===== -->
+    <main class="main-content">
+        <!-- 頂部工具列 -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="btn-icon mobile-menu-toggle" id="mobile-menu-toggle">
+                    <i data-lucide="menu"></i>
+                </button>
+                <h1 class="page-title" id="page-title">總覽</h1>
+            </div>
+            <div class="topbar-right">
+                <div class="search-box">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="global-search" placeholder="搜尋線路、待辦...">
+                </div>
+                <button class="btn-primary" id="btn-add-line">
+                    <i data-lucide="plus"></i>
+                    <span>新增線路</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ===== 總覽視圖 ===== -->
+        <section class="view active" id="view-dashboard">
+            <!-- 統計卡片 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: var(--accent-blue-dim)"><i data-lucide="map-pin"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="stat-total-lines">0</span>
+                        <span class="stat-label">管理線路</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: var(--accent-red-dim)"><i data-lucide="alert-triangle"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="stat-urgent-deadlines">0</span>
+                        <span class="stat-label">緊急截止</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: var(--accent-green-dim)"><i data-lucide="check-circle"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="stat-todo-rate">0%</span>
+                        <span class="stat-label">待辦完成率</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon" style="background: var(--accent-gold-dim)"><i data-lucide="trending-up"></i></div>
+                    <div class="stat-info">
+                        <span class="stat-value" id="stat-total-revenue">$0</span>
+                        <span class="stat-label">預估總營收</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 即將截止提醒 -->
+            <div class="section-block" id="urgent-section" style="display:none">
+                <h2 class="section-title"><i data-lucide="alarm-clock"></i> 即將截止</h2>
+                <div class="deadline-list" id="urgent-deadline-list"></div>
+            </div>
+
+            <!-- 線路卡片 Grid -->
+            <div class="section-block">
+                <h2 class="section-title"><i data-lucide="grid-3x3"></i> 線路總覽</h2>
+                <div class="lines-grid" id="dashboard-lines-grid"></div>
+            </div>
+        </section>
+
+        <!-- ===== 線路視圖 ===== -->
+        <section class="view" id="view-lines">
+            <div class="view-toolbar">
+                <div class="filter-group">
+                    <select id="filter-status" class="filter-select">
+                        <option value="all">全部狀態</option>
+                        <option value="planning">🟢 規劃中</option>
+                        <option value="confirmed">🔵 已確認</option>
+                        <option value="departing">🟡 即將出團</option>
+                        <option value="active">🟣 出團中</option>
+                        <option value="completed">✅ 已完成</option>
+                    </select>
+                    <select id="filter-region" class="filter-select">
+                        <option value="all">全部區域</option>
+                    </select>
+                </div>
+            </div>
+            <div class="lines-list" id="lines-list"></div>
+        </section>
+
+        <!-- ===== 線路詳細頁 ===== -->
+        <section class="view" id="view-line-detail">
+            <button class="btn-back" id="btn-back-to-lines"><i data-lucide="arrow-left"></i> 返回線路列表</button>
+            <div id="line-detail-content"></div>
+        </section>
+
+        <!-- ===== 待辦視圖 ===== -->
+        <section class="view" id="view-todos">
+            <div class="view-toolbar">
+                <div class="filter-group">
+                    <select id="filter-todo-priority" class="filter-select">
+                        <option value="all">全部優先級</option>
+                        <option value="high">🔴 高</option>
+                        <option value="medium">🟡 中</option>
+                        <option value="low">🟢 低</option>
+                    </select>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="filter-hide-done"> 隱藏已完成
+                    </label>
+                </div>
+                <button class="btn-primary btn-sm" id="btn-add-todo-global">
+                    <i data-lucide="plus"></i> 新增待辦
+                </button>
+            </div>
+            <div class="todos-list" id="todos-list"></div>
+        </section>
+
+        <!-- ===== 收支視圖 ===== -->
+        <section class="view" id="view-finance">
+            <div class="finance-summary" id="finance-summary"></div>
+            <div class="finance-table-wrapper">
+                <table class="finance-table" id="finance-table">
+                    <thead>
+                        <tr>
+                            <th>線路</th>
+                            <th>人數</th>
+                            <th>總收入</th>
+                            <th>總成本</th>
+                            <th>利潤</th>
+                            <th>利潤率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="finance-table-body"></tbody>
+                    <tfoot id="finance-table-foot"></tfoot>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- ===== 底部導航（手機版） ===== -->
+    <nav class="bottom-nav" id="bottom-nav">
+        <a href="#dashboard" class="bottom-nav-item active" data-view="dashboard"><i data-lucide="layout-dashboard"></i><span>總覽</span></a>
+        <a href="#lines" class="bottom-nav-item" data-view="lines"><i data-lucide="map"></i><span>線路</span></a>
+        <a href="#todos" class="bottom-nav-item" data-view="todos"><i data-lucide="check-square"></i><span>待辦</span></a>
+        <a href="#finance" class="bottom-nav-item" data-view="finance"><i data-lucide="wallet"></i><span>收支</span></a>
+    </nav>
+
+    <!-- ===== Modal: 新增/編輯線路 ===== -->
+    <div class="modal-overlay" id="modal-line">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modal-line-title">新增線路</h3>
+                <button class="btn-icon modal-close" data-modal="modal-line"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-line">
+                    <input type="hidden" id="line-id">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="line-name">線路名稱 *</label>
+                            <input type="text" id="line-name" required placeholder="例：北歐五國極光 14 天">
+                        </div>
+                        <div class="form-group">
+                            <label for="line-region">區域</label>
+                            <input type="text" id="line-region" placeholder="例：北歐" list="region-list">
+                            <datalist id="region-list"></datalist>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="line-status">狀態</label>
+                            <select id="line-status">
+                                <option value="planning">🟢 規劃中</option>
+                                <option value="confirmed">🔵 已確認</option>
+                                <option value="departing">🟡 即將出團</option>
+                                <option value="active">🟣 出團中</option>
+                                <option value="completed">✅ 已完成</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="line-capacity">團位上限</label>
+                            <input type="number" id="line-capacity" min="1" value="16">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="line-departure">出發日期</label>
+                            <input type="date" id="line-departure">
+                        </div>
+                        <div class="form-group">
+                            <label for="line-return">回程日期</label>
+                            <input type="date" id="line-return">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="line-bookings">目前報名人數</label>
+                            <input type="number" id="line-bookings" min="0" value="0">
+                        </div>
+                        <div class="form-group">
+                            <label for="line-revenue-pp">每人團費 (NT$)</label>
+                            <input type="number" id="line-revenue-pp" min="0" value="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="line-notes">備註</label>
+                        <textarea id="line-notes" rows="3" placeholder="特殊注意事項..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-close" data-modal="modal-line">取消</button>
+                <button class="btn-primary" id="btn-save-line">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Modal: 新增截止日 ===== -->
+    <div class="modal-overlay" id="modal-deadline">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h3>新增截止日</h3>
+                <button class="btn-icon modal-close" data-modal="modal-deadline"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-deadline">
+                    <input type="hidden" id="deadline-line-id">
+                    <div class="form-group">
+                        <label for="deadline-label">項目 *</label>
+                        <input type="text" id="deadline-label" required placeholder="例：機位確認截止">
+                    </div>
+                    <div class="form-group">
+                        <label for="deadline-date">截止日期 *</label>
+                        <input type="date" id="deadline-date" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-close" data-modal="modal-deadline">取消</button>
+                <button class="btn-primary" id="btn-save-deadline">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Modal: 新增待辦 ===== -->
+    <div class="modal-overlay" id="modal-todo">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h3>新增待辦事項</h3>
+                <button class="btn-icon modal-close" data-modal="modal-todo"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-todo">
+                    <input type="hidden" id="todo-line-id">
+                    <div class="form-group">
+                        <label for="todo-line-select">所屬線路 *</label>
+                        <select id="todo-line-select" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label for="todo-text">待辦內容 *</label>
+                        <input type="text" id="todo-text" required placeholder="例：確認赫爾辛基飯店">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="todo-priority">優先級</label>
+                            <select id="todo-priority">
+                                <option value="high">🔴 高</option>
+                                <option value="medium" selected>🟡 中</option>
+                                <option value="low">🟢 低</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="todo-due">截止日期</label>
+                            <input type="date" id="todo-due">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-close" data-modal="modal-todo">取消</button>
+                <button class="btn-primary" id="btn-save-todo">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Modal: 新增成本 ===== -->
+    <div class="modal-overlay" id="modal-cost">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h3>新增成本項目</h3>
+                <button class="btn-icon modal-close" data-modal="modal-cost"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-cost">
+                    <input type="hidden" id="cost-line-id">
+                    <div class="form-group">
+                        <label for="cost-item">項目名稱 *</label>
+                        <input type="text" id="cost-item" required placeholder="例：機票">
+                    </div>
+                    <div class="form-group">
+                        <label for="cost-amount">金額 (NT$) *</label>
+                        <input type="number" id="cost-amount" required min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="cost-per-person"> 此為每人費用（會乘以人數）
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-close" data-modal="modal-cost">取消</button>
+                <button class="btn-primary" id="btn-save-cost">儲存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== Modal: 搜尋結果 ===== -->
+    <div class="search-results-dropdown" id="search-results" style="display:none"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
