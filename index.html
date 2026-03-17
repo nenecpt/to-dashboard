@@ -9,6 +9,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Document Parsing Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://unpkg.com/mammoth@1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -48,6 +52,7 @@
         <div class="sidebar-footer">
             <button class="btn-icon" id="btn-export" title="匯出資料"><i data-lucide="download"></i><span>匯出</span></button>
             <button class="btn-icon" id="btn-import" title="匯入資料"><i data-lucide="upload"></i><span>匯入</span></button>
+            <button class="btn-icon" id="btn-settings" title="設定"><i data-lucide="settings"></i><span>設定</span></button>
             <input type="file" id="import-file-input" accept=".json" style="display:none">
         </div>
     </nav>
@@ -76,6 +81,26 @@
 
         <!-- ===== 總覽視圖 ===== -->
         <section class="view active" id="view-dashboard">
+            <!-- 每日簡報 -->
+            <div class="daily-briefing" id="daily-briefing" style="display:none">
+                <div class="briefing-header">
+                    <span class="briefing-greeting" id="briefing-greeting">☀️ 早安！</span>
+                    <button class="briefing-close" id="briefing-close">✕</button>
+                </div>
+                <div class="briefing-body" id="briefing-body"></div>
+            </div>
+
+            <!-- 智慧提醒 -->
+            <div class="smart-alerts" id="smart-alerts" style="display:none">
+                <div class="smart-alerts-header">
+                    <span>🧠 智慧提醒</span>
+                    <button class="btn-icon" id="toggle-alerts" title="收合">
+                        <i data-lucide="chevron-up"></i>
+                    </button>
+                </div>
+                <div class="smart-alerts-list" id="smart-alerts-list"></div>
+            </div>
+
             <!-- 統計卡片 -->
             <div class="stats-grid">
                 <div class="stat-card">
@@ -370,6 +395,75 @@
 
     <!-- ===== Modal: 搜尋結果 ===== -->
     <div class="search-results-dropdown" id="search-results" style="display:none"></div>
+
+    <!-- ===== FAB 快速新增（手機版） ===== -->
+    <div class="fab-container" id="fab-container">
+        <div class="fab-menu" id="fab-menu">
+            <button class="fab-item" onclick="Modals.openTodoModal()" title="新增待辦">
+                <i data-lucide="check-square"></i><span>待辦</span>
+            </button>
+            <button class="fab-item" onclick="FabMenu.addDeadline()" title="新增截止日">
+                <i data-lucide="alarm-clock"></i><span>截止日</span>
+            </button>
+            <button class="fab-item" onclick="Modals.openLineModal()" title="新增線路">
+                <i data-lucide="map"></i><span>線路</span>
+            </button>
+        </div>
+        <button class="fab-trigger" id="fab-trigger">
+            <i data-lucide="plus"></i>
+        </button>
+    </div>
+
+    <!-- ===== AI 助理聊天面板 ===== -->
+    <div class="ai-panel" id="ai-panel">
+        <div class="ai-panel-header">
+            <span>🤖 TO 智慧助理</span>
+            <button class="btn-icon" id="ai-panel-close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="ai-panel-messages" id="ai-messages">
+            <div class="ai-msg ai-msg-bot">
+                <div class="ai-msg-content">你好！我是你的 TO 助理 ✈️<br>你可以問我任何關於線路的問題，例如：<br><em>「下週有哪些團要出發？」</em><br><em>「哪些團報名率最低？」</em><br><em>「幫我總結目前的工作重點」</em></div>
+            </div>
+        </div>
+        <div class="ai-panel-input">
+            <button class="btn-icon" id="ai-upload-btn" title="匯入文件 (Word/Excel/PDF/ICS/EML)"><i data-lucide="paperclip"></i></button>
+            <input type="file" id="ai-file-input" accept=".docx,.xlsx,.xls,.pdf,.ics,.eml,.csv,.txt" style="display:none" multiple>
+            <input type="text" id="ai-input" placeholder="輸入問題或上傳文件..." autocomplete="off">
+            <button class="btn-primary" id="ai-send"><i data-lucide="send"></i></button>
+        </div>
+        <div class="ai-panel-notice" id="ai-notice"></div>
+    </div>
+    <button class="ai-fab" id="ai-fab" title="AI 助理">
+        <span class="ai-fab-icon">🤖</span>
+    </button>
+
+    <!-- ===== Modal: 設定 ===== -->
+    <div class="modal-overlay" id="modal-settings">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h3>⚙️ 設定</h3>
+                <button class="btn-icon modal-close" data-modal="modal-settings"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="settings-api-key">Gemini API Key</label>
+                    <input type="password" id="settings-api-key" placeholder="貼上你的 API Key">
+                    <div class="form-hint">
+                        免費申請：前往 <a href="https://aistudio.google.com/apikey" target="_blank" style="color: var(--accent-blue)">Google AI Studio</a> → 建立 API Key
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="settings-briefing-enabled" checked> 每日顯示智慧簡報
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-close" data-modal="modal-settings">取消</button>
+                <button class="btn-primary" id="btn-save-settings">儲存</button>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

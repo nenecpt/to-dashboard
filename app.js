@@ -289,6 +289,9 @@ const Dashboard = {
         this.renderStats(lines);
         this.renderUrgentDeadlines(lines);
         this.renderLinesGrid(lines);
+        // Phase 2: Refresh smart features
+        DailyBriefing.render();
+        SmartAlerts.render();
     },
 
     renderStats(lines) {
@@ -1040,6 +1043,579 @@ const Search = {
     }
 };
 
+// ============================================
+//  Phase 2: 智慧 UI + AI 助理模組
+// ============================================
+
+// === Settings Module ===
+const Settings = {
+    KEYS: {
+        apiKey: 'to-dashboard-gemini-key',
+        briefingEnabled: 'to-dashboard-briefing-enabled',
+        briefingDismissed: 'to-dashboard-briefing-dismissed'
+    },
+
+    getApiKey() { return localStorage.getItem(this.KEYS.apiKey) || ''; },
+    setApiKey(key) { localStorage.setItem(this.KEYS.apiKey, key); },
+    isBriefingEnabled() { return localStorage.getItem(this.KEYS.briefingEnabled) !== 'false'; },
+    setBriefingEnabled(v) { localStorage.setItem(this.KEYS.briefingEnabled, v); },
+    isBriefingDismissed() {
+        const d = localStorage.getItem(this.KEYS.briefingDismissed);
+        return d === new Date().toISOString().split('T')[0];
+    },
+    dismissBriefing() { localStorage.setItem(this.KEYS.briefingDismissed, new Date().toISOString().split('T')[0]); },
+
+    openModal() {
+        document.getElementById('settings-api-key').value = this.getApiKey();
+        document.getElementById('settings-briefing-enabled').checked = this.isBriefingEnabled();
+        Modals.open('modal-settings');
+    },
+
+    save() {
+        this.setApiKey(document.getElementById('settings-api-key').value.trim());
+        this.setBriefingEnabled(document.getElementById('settings-briefing-enabled').checked);
+        Modals.close('modal-settings');
+    }
+};
+
+// === Daily Briefing Module ===
+const DailyBriefing = {
+    render() {
+        if (!Settings.isBriefingEnabled() || Settings.isBriefingDismissed()) return;
+
+        const lines = Store.getLines();
+        if (lines.length === 0) return;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const items = [];
+        let level = 'safe';
+
+        // Count overdue & today deadlines
+        let overdueCount = 0, todayCount = 0, urgentTodoCount = 0;
+        let upcomingDepartures = [];
+
+        lines.forEach(line => {
+            line.deadlines.forEach(dl => {
+                if (dl.done) return;
+                const days = Utils.daysUntil(dl.date);
+                if (days < 0) overdueCount++;
+                else if (days === 0) todayCount++;
+            });
+
+            const pendingHighTodos = line.todos.filter(t => !t.done && t.priority === 'high').length;
+            urgentTodoCount += pendingHighTodos;
+
+            // Departures within 7 days
+            if (line.departureDate) {
+                const dDays = Utils.daysUntil(line.departureDate);
+                if (dDays >= 0 && dDays <= 7) {
+                    const pendingAll = line.todos.filter(t => !t.done).length;
+                    upcomingDepartures.push({ name: line.name, days: dDays, pending: pendingAll });
+                }
+            }
+        });
+
+        if (overdueCount > 0) {
+            items.push({ icon: '🚨', text: `${overdueCount} 項截止日已逾期！`, cls: 'critical' });
+            level = 'critical';
+        }
+        if (todayCount > 0) {
+            items.push({ icon: '⏰', text: `今日有 ${todayCount} 項截止`, cls: 'warning' });
+            if (level !== 'critical') level = 'warning';
+        }
+        if (urgentTodoCount > 0) {
+            items.push({ icon: '🔴', text: `${urgentTodoCount} 項高優先待辦`, cls: 'warning' });
+            if (level === 'safe') level = 'warning';
+        }
+
+        upcomingDepartures.forEach(d => {
+            items.push({
+                icon: '✈️',
+                text: d.days === 0 ? `${d.name} 今天出發！` : `${d.name} ${d.days} 天後出發${d.pending > 0 ? `，${d.pending} 項待辦` : ''}`,
+                cls: d.days <= 2 ? 'critical' : 'warning'
+            });
+            if (d.days <= 2 && level !== 'critical') level = 'critical';
+        });
+
+        if (items.length === 0) {
+            const totalPending = lines.reduce((sum, l) => sum + l.todos.filter(t => !t.done).length, 0);
+            items.push({ icon: '✅', text: totalPending === 0 ? '目前沒有待處理事項' : `還有 ${totalPending} 項待辦進行中`, cls: 'safe' });
+        }
+
+        // Time-based greeting
+        const hour = new Date().getHours();
+        let greeting = '☀️ 早安！';
+        if (hour >= 12 && hour < 17) greeting = '🌤️ 午安！';
+        else if (hour >= 17) greeting = '🌙 晚安！';
+
+        const el = document.getElementById('daily-briefing');
+        document.getElementById('briefing-greeting').textContent = greeting;
+        document.getElementById('briefing-body').innerHTML = items.map(i =>
+            `<div class="briefing-item ${i.cls}"><span>${i.icon}</span> ${i.text}</div>`
+        ).join('');
+
+        el.className = `daily-briefing level-${level}`;
+        el.style.display = 'block';
+    },
+
+    dismiss() {
+        Settings.dismissBriefing();
+        document.getElementById('daily-briefing').style.display = 'none';
+    }
+};
+
+// === Smart Alerts Module ===
+const SmartAlerts = {
+    render() {
+        const lines = Store.getLines();
+        const alerts = [];
+
+        lines.forEach(line => {
+            // Rule 1: Departure countdown <= 7 days
+            if (line.departureDate) {
+                const days = Utils.daysUntil(line.departureDate);
+                const pending = line.todos.filter(t => !t.done).length;
+                if (days >= 0 && days <= 7) {
+                    alerts.push({
+                        icon: '⚠️', priority: days <= 2 ? 0 : 1,
+                        title: `${line.name}${days === 0 ? '今天出發' : ` ${days} 天後出發`}`,
+                        detail: pending > 0 ? `還有 ${pending} 項待辦未完成` : '所有待辦已完成 ✓',
+                        lineId: line.id
+                    });
+                }
+            }
+
+            // Rule 2: Overdue deadlines
+            line.deadlines.forEach(dl => {
+                if (dl.done) return;
+                const days = Utils.daysUntil(dl.date);
+                if (days < 0) {
+                    alerts.push({
+                        icon: '🚨', priority: 0,
+                        title: `「${dl.label}」已逾期 ${Math.abs(days)} 天`,
+                        detail: line.name,
+                        lineId: line.id
+                    });
+                }
+            });
+
+            // Rule 3: Low booking rate with upcoming departure
+            if (line.departureDate && line.capacity > 0) {
+                const days = Utils.daysUntil(line.departureDate);
+                const pct = Math.round((line.currentBookings / line.capacity) * 100);
+                if (days > 0 && days <= 30 && pct < 50) {
+                    alerts.push({
+                        icon: '📊', priority: 2,
+                        title: `${line.name} 報名率 ${pct}%`,
+                        detail: `距出發 ${days} 天，僅 ${line.currentBookings}/${line.capacity} 人`,
+                        lineId: line.id
+                    });
+                }
+            }
+
+            // Rule 4: Too many high-priority todos
+            const highTodos = line.todos.filter(t => !t.done && t.priority === 'high').length;
+            if (highTodos >= 3) {
+                alerts.push({
+                    icon: '🔴', priority: 1,
+                    title: `${line.name} 有 ${highTodos} 項高優先待辦`,
+                    detail: '建議優先處理',
+                    lineId: line.id
+                });
+            }
+        });
+
+        // Total pending high-priority across all lines
+        const totalHigh = lines.reduce((sum, l) => sum + l.todos.filter(t => !t.done && t.priority === 'high').length, 0);
+        if (totalHigh >= 5) {
+            alerts.unshift({
+                icon: '🔥', priority: 0,
+                title: `累計 ${totalHigh} 項高優先待辦未處理`,
+                detail: '建議集中處理最緊急的項目',
+                lineId: null
+            });
+        }
+
+        const container = document.getElementById('smart-alerts');
+        const list = document.getElementById('smart-alerts-list');
+
+        if (alerts.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        alerts.sort((a, b) => a.priority - b.priority);
+
+        list.innerHTML = alerts.map(a => `
+            <div class="alert-item" ${a.lineId ? `onclick="Router.navigate('line-detail', '${a.lineId}')"` : ''}>
+                <span class="alert-icon">${a.icon}</span>
+                <div class="alert-content">
+                    <div class="alert-title">${Utils.escapeHtml(a.title)}</div>
+                    <div class="alert-detail">${Utils.escapeHtml(a.detail)}</div>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    toggle() {
+        const el = document.getElementById('smart-alerts');
+        el.classList.toggle('collapsed');
+    }
+};
+
+// === FAB Menu Module ===
+const FabMenu = {
+    isOpen: false,
+
+    toggle() {
+        this.isOpen = !this.isOpen;
+        document.getElementById('fab-menu').classList.toggle('open', this.isOpen);
+        document.getElementById('fab-trigger').classList.toggle('active', this.isOpen);
+    },
+
+    close() {
+        this.isOpen = false;
+        document.getElementById('fab-menu').classList.remove('open');
+        document.getElementById('fab-trigger').classList.remove('active');
+    },
+
+    addDeadline() {
+        const lines = Store.getLines();
+        if (lines.length === 0) {
+            alert('請先新增至少一條線路');
+            return;
+        }
+        // Open deadline modal for first line, user can change
+        Modals.openDeadlineModal(lines[0].id);
+        this.close();
+    }
+};
+
+// === File Import Module ===
+const FileImport = {
+    async parseFile(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+        try {
+            switch (ext) {
+                case 'pdf': return await this.parsePDF(file);
+                case 'docx': return await this.parseDOCX(file);
+                case 'xlsx': case 'xls': return await this.parseXLSX(file);
+                case 'csv': return await this.parseCSV(file);
+                case 'ics': return await this.parseICS(file);
+                case 'eml': return await this.parseEML(file);
+                case 'txt': return await this.parseTXT(file);
+                default: return `⚠️ 不支援的格式：.${ext}`;
+            }
+        } catch (e) {
+            console.error('File parse error:', e);
+            return `❌ 解析 ${file.name} 失敗：${e.message}`;
+        }
+    },
+
+    async parsePDF(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let text = '';
+        for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            text += content.items.map(item => item.str).join(' ') + '\n';
+        }
+        return text.trim() || '（PDF 無可辨識文字）';
+    },
+
+    async parseDOCX(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        return result.value.trim() || '（Word 文件無文字內容）';
+    },
+
+    async parseXLSX(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+        let text = '';
+        workbook.SheetNames.forEach(name => {
+            const sheet = workbook.Sheets[name];
+            const csv = XLSX.utils.sheet_to_csv(sheet);
+            text += `【工作表：${name}】\n${csv}\n\n`;
+        });
+        return text.trim();
+    },
+
+    async parseCSV(file) {
+        return await file.text();
+    },
+
+    async parseICS(file) {
+        const text = await file.text();
+        // Simple ICS parser
+        const events = [];
+        const blocks = text.split('BEGIN:VEVENT');
+        blocks.slice(1).forEach(block => {
+            const end = block.indexOf('END:VEVENT');
+            const eventText = block.substring(0, end);
+
+            const get = (key) => {
+                const match = eventText.match(new RegExp(key + '[^:]*:(.+)', 'i'));
+                return match ? match[1].trim() : '';
+            };
+
+            const summary = get('SUMMARY');
+            const dtstart = get('DTSTART');
+            const dtend = get('DTEND');
+            const description = get('DESCRIPTION');
+            const location = get('LOCATION');
+
+            if (summary) {
+                let dateStr = dtstart;
+                if (dateStr.length >= 8) {
+                    dateStr = `${dateStr.slice(0,4)}-${dateStr.slice(4,6)}-${dateStr.slice(6,8)}`;
+                }
+                events.push(`📅 ${summary}\n   日期：${dateStr}${location ? `\n   地點：${location}` : ''}${description ? `\n   說明：${description.replace(/\\n/g, ' ')}` : ''}`);
+            }
+        });
+
+        return events.length > 0 ? `匯入 ${events.length} 個行事曆事件：\n\n${events.join('\n\n')}` : '（ICS 無事件資料）';
+    },
+
+    async parseEML(file) {
+        const text = await file.text();
+        // Simple EML parser
+        const getHeader = (name) => {
+            const match = text.match(new RegExp(`^${name}:\\s*(.+)`, 'mi'));
+            return match ? match[1].trim() : '';
+        };
+
+        const subject = getHeader('Subject');
+        const from = getHeader('From');
+        const date = getHeader('Date');
+
+        // Get body (after first blank line)
+        let body = '';
+        const bodyStart = text.indexOf('\r\n\r\n');
+        if (bodyStart > -1) {
+            body = text.substring(bodyStart + 4, bodyStart + 2000); // Limit body
+        }
+
+        return `📧 Email 內容：\n主旨：${subject}\n寄件者：${from}\n日期：${date}\n\n${body.trim()}`;
+    },
+
+    async parseTXT(file) {
+        return await file.text();
+    }
+};
+
+// === AI Assistant Module ===
+const AIAssistant = {
+    isOpen: false,
+
+    toggle() {
+        this.isOpen = !this.isOpen;
+        document.getElementById('ai-panel').classList.toggle('open', this.isOpen);
+        document.getElementById('ai-fab').style.display = this.isOpen ? 'none' : 'flex';
+        if (this.isOpen) {
+            document.getElementById('ai-input').focus();
+            this.checkApiKey();
+        }
+    },
+
+    close() {
+        this.isOpen = false;
+        document.getElementById('ai-panel').classList.remove('open');
+        document.getElementById('ai-fab').style.display = 'flex';
+    },
+
+    checkApiKey() {
+        const notice = document.getElementById('ai-notice');
+        if (!Settings.getApiKey()) {
+            notice.innerHTML = '⚠️ 尚未設定 API Key。<a href="#" onclick="Settings.openModal(); return false;" style="color: var(--accent-blue)">前往設定</a>';
+            notice.classList.add('visible');
+        } else {
+            notice.classList.remove('visible');
+        }
+    },
+
+    addMessage(role, content) {
+        const container = document.getElementById('ai-messages');
+        const div = document.createElement('div');
+        div.className = `ai-msg ai-msg-${role}`;
+        div.innerHTML = `<div class="ai-msg-content">${content}</div>`;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        return div;
+    },
+
+    showLoading() {
+        const container = document.getElementById('ai-messages');
+        const div = document.createElement('div');
+        div.className = 'ai-msg ai-msg-bot';
+        div.id = 'ai-loading';
+        div.innerHTML = '<div class="ai-msg-loading"><span></span><span></span><span></span></div>';
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    },
+
+    hideLoading() {
+        const el = document.getElementById('ai-loading');
+        if (el) el.remove();
+    },
+
+    buildContext() {
+        const lines = Store.getLines();
+        const today = new Date().toISOString().split('T')[0];
+
+        let ctx = `今天日期：${today}\n目前管理 ${lines.length} 條線路：\n\n`;
+
+        lines.forEach(line => {
+            const pendingTodos = line.todos.filter(t => !t.done);
+            const pendingDeadlines = line.deadlines.filter(d => !d.done);
+            const bookingPct = line.capacity > 0 ? Math.round((line.currentBookings / line.capacity) * 100) : 0;
+
+            ctx += `【${line.name}】\n`;
+            ctx += `  狀態：${Utils.statusLabel(line.status)} | 區域：${line.region || '未設定'}\n`;
+            ctx += `  出發：${line.departureDate || '未排定'} → ${line.returnDate || '未排定'}\n`;
+            ctx += `  報名：${line.currentBookings}/${line.capacity} (${bookingPct}%)\n`;
+
+            if (pendingDeadlines.length > 0) {
+                ctx += `  截止日（${pendingDeadlines.length} 項未完成）：\n`;
+                pendingDeadlines.forEach(dl => {
+                    const days = Utils.daysUntil(dl.date);
+                    ctx += `    - ${dl.label}：${dl.date}（${Utils.urgencyLabel(days)}）\n`;
+                });
+            }
+
+            if (pendingTodos.length > 0) {
+                ctx += `  待辦（${pendingTodos.length} 項未完成）：\n`;
+                pendingTodos.forEach(t => {
+                    ctx += `    - [${t.priority}] ${t.text}${t.dueDate ? ` (截止 ${t.dueDate})` : ''}\n`;
+                });
+            }
+
+            const rev = (line.currentBookings || 0) * (line.finances?.revenuePerPerson || 0);
+            let cost = 0;
+            (line.finances?.costs || []).forEach(c => {
+                cost += c.perPerson ? c.amount * (line.currentBookings || 0) : c.amount;
+            });
+            ctx += `  財務：收入 ${Utils.formatMoney(rev)} / 成本 ${Utils.formatMoney(cost)} / 利潤 ${Utils.formatMoney(rev - cost)}\n\n`;
+        });
+
+        return ctx;
+    },
+
+    async send(msg) {
+        if (!msg.trim()) return;
+
+        const apiKey = Settings.getApiKey();
+        if (!apiKey) {
+            this.addMessage('bot', '⚠️ 請先在設定中填入 Gemini API Key 才能使用 AI 功能。<br><a href="#" onclick="Settings.openModal(); return false;" style="color: var(--accent-blue)">前往設定</a>');
+            return;
+        }
+
+        this.addMessage('user', Utils.escapeHtml(msg));
+        document.getElementById('ai-input').value = '';
+        this.showLoading();
+
+        const context = this.buildContext();
+        const systemPrompt = `你是「TO 智慧助理」，專為旅行社 Tour Operator (TO) 設計的 AI 助理。
+你的使用者是一位管理多條旅遊團線路的 TO。
+
+你可以：
+1. 回答關於線路狀態、截止日、待辦事項的問題
+2. 提供工作建議和優先順序
+3. 整理和摘要工作資訊
+4. 分析文件內容（行事曆、email、文件等）並建議如何新增到系統
+
+如果使用者上傳了文件內容，請幫助分析並建議：
+- 哪些內容可以轉換為截止日
+- 哪些可以轉換為待辦事項
+- 是否涉及特定線路
+
+回覆時使用繁體中文，語氣親切專業，回答要簡潔實用。
+不要使用 markdown 格式（如 ** 粗體），直接用純文字即可。
+如被問到非旅遊管理相關問題，友善地引導回業務主題。`;
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    system_instruction: { parts: [{ text: systemPrompt }] },
+                    contents: [{
+                        parts: [
+                            { text: `目前系統資料：\n${context}` },
+                            { text: msg }
+                        ]
+                    }],
+                    generationConfig: { temperature: 0.7, maxOutputTokens: 1024 }
+                })
+            });
+
+            this.hideLoading();
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                if (response.status === 400 || response.status === 403) {
+                    this.addMessage('bot', '❌ API Key 無效或已過期，請到設定中更新。');
+                } else {
+                    this.addMessage('bot', `❌ API 錯誤 (${response.status})：${err.error?.message || '未知錯誤'}`);
+                }
+                return;
+            }
+
+            const data = await response.json();
+            const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '（無回應）';
+            this.addMessage('bot', Utils.escapeHtml(reply).replace(/\n/g, '<br>'));
+
+        } catch (e) {
+            this.hideLoading();
+            this.addMessage('bot', `❌ 連線失敗：${e.message}<br>請檢查網路連線。`);
+        }
+    },
+
+    async handleFiles(files) {
+        if (files.length === 0) return;
+
+        const apiKey = Settings.getApiKey();
+        if (!apiKey) {
+            this.addMessage('bot', '⚠️ 文件分析需要 AI 功能，請先設定 Gemini API Key。<br><a href="#" onclick="Settings.openModal(); return false;" style="color: var(--accent-blue)">前往設定</a>');
+            return;
+        }
+
+        for (const file of files) {
+            this.addMessage('user', `📎 上傳文件：${Utils.escapeHtml(file.name)}`);
+            this.showLoading();
+
+            try {
+                const content = await FileImport.parseFile(file);
+                this.hideLoading();
+
+                // Send to AI for analysis
+                const prompt = `使用者上傳了文件「${file.name}」，以下是解析出的內容：
+
+---
+${content.substring(0, 4000)}
+---
+
+請分析此文件內容，並告訴使用者：
+1. 文件的主要內容摘要
+2. 是否包含可以加入系統的截止日、待辦事項、或行程資訊
+3. 具體建議要新增什麼項目到哪條線路
+
+請用條列方式回覆，簡潔實用。`;
+
+                await this.send(prompt);
+
+            } catch (e) {
+                this.hideLoading();
+                this.addMessage('bot', `❌ 無法解析 ${file.name}：${e.message}`);
+            }
+        }
+    }
+};
+
 // === Event Listeners ===
 function initEventListeners() {
     // Navigation links
@@ -1243,6 +1819,56 @@ function initEventListeners() {
         if (e.key === 'Escape') {
             document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
             document.getElementById('search-results').style.display = 'none';
+            AIAssistant.close();
+            FabMenu.close();
+        }
+    });
+
+    // ===== Phase 2 Event Listeners =====
+
+    // Settings
+    document.getElementById('btn-settings').addEventListener('click', () => Settings.openModal());
+    document.getElementById('btn-save-settings').addEventListener('click', () => Settings.save());
+
+    // Daily Briefing close
+    document.getElementById('briefing-close').addEventListener('click', () => DailyBriefing.dismiss());
+
+    // Smart Alerts toggle
+    document.getElementById('toggle-alerts').addEventListener('click', () => SmartAlerts.toggle());
+
+    // FAB
+    document.getElementById('fab-trigger').addEventListener('click', () => FabMenu.toggle());
+
+    // AI Assistant
+    document.getElementById('ai-fab').addEventListener('click', () => AIAssistant.toggle());
+    document.getElementById('ai-panel-close').addEventListener('click', () => AIAssistant.close());
+    document.getElementById('ai-send').addEventListener('click', () => {
+        const input = document.getElementById('ai-input');
+        AIAssistant.send(input.value);
+    });
+    document.getElementById('ai-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            AIAssistant.send(e.target.value);
+        }
+    });
+
+    // AI File Upload
+    document.getElementById('ai-upload-btn').addEventListener('click', () => {
+        document.getElementById('ai-file-input').click();
+    });
+    document.getElementById('ai-file-input').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            AIAssistant.handleFiles(e.target.files);
+            e.target.value = '';
+        }
+    });
+
+    // Clickable AI suggestions
+    document.getElementById('ai-messages').addEventListener('click', (e) => {
+        if (e.target.tagName === 'EM' && e.target.textContent.startsWith('「')) {
+            const text = e.target.textContent.replace(/[「」]/g, '');
+            document.getElementById('ai-input').value = text;
+            AIAssistant.send(text);
         }
     });
 }
@@ -1350,6 +1976,11 @@ function init() {
     seedDemoData();
     initEventListeners();
     Router.init();
+
+    // Phase 2: Render smart features
+    DailyBriefing.render();
+    SmartAlerts.render();
+
     lucide.createIcons();
 }
 
