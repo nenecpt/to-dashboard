@@ -14,3 +14,23 @@ Thumbs.db
 
 # Temp
 tmp/
+
+# ===== 機敏資料防守鐵則（workspace 硬性規則 #4 / 銅牆鐵壁 2026-06-23）=====
+# serviceAccountKey.json / .env / API key 永不提交
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+serviceAccountKey*.json
+*serviceAccount*.json
+firebase-adminsdk-*.json
+credentials.json
+client_secret*.json
+token.json
+secrets.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
